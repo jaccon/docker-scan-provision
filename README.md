@@ -10,7 +10,12 @@ This tool automates the discovery, registration, and tracking of active Docker c
 - Preserves manually assigned paths across updates
 - Outputs all data to a structured JSON file: `data/containers.json`
 
-## Usage
+## Container Scan
 
-```bash
-python3 _containerProvision.py
+```
+python3 _containerScan.py
+
+
+## Provision new container
+```
+python3 _containerProvision.py test5 --container-path="./run/test5"
