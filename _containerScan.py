@@ -1,6 +1,7 @@
 import json
 import subprocess
 from pathlib import Path
+from os.path import commonprefix, dirname
 
 DATA_PATH = Path("data/containers.json")
 
@@ -19,6 +20,18 @@ def run_command(cmd):
 def get_active_containers():
     output = run_command(["docker", "ps", "--format", "{{.Names}}"])
     return output.splitlines() if output else []
+
+
+def extract_mount_base(mounts):
+    sources = [
+        mount.get("Source") for mount in mounts
+        if mount.get("Type") == "bind" and mount.get("Source")
+    ]
+    if not sources:
+        return None
+
+    base = commonprefix(sources)
+    return dirname(base)
 
 
 def inspect_container(name):
@@ -51,12 +64,14 @@ def inspect_container(name):
                 ])
             break  # Assume apenas a primeira rede é suficiente
 
-        # Extrai o caminho do docker-compose.yml se disponível
         labels = info.get("Config", {}).get("Labels", {})
         compose_file = labels.get("com.docker.compose.project.config_files")
-        path = None
+
         if compose_file:
             path = str(Path(compose_file).parent)
+        else:
+            mounts = info.get("Mounts", [])
+            path = extract_mount_base(mounts)
 
         return {
             "name": name,
