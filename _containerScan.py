@@ -6,10 +6,14 @@ DATA_PATH = Path("data/containers.json")
 
 
 def run_command(cmd):
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if result.returncode != 0:
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+    except Exception as e:
+        print(f"Erro ao executar comando: {cmd} -> {e}")
         return None
-    return result.stdout.strip()
 
 
 def get_active_containers():
@@ -22,34 +26,48 @@ def inspect_container(name):
     if not output:
         return None
 
-    info = json.loads(output)[0]
+    try:
+        info = json.loads(output)[0]
 
-    ports_data = info.get("NetworkSettings", {}).get("Ports", {})
-    ports = {}
-    for container_port, bindings in ports_data.items():
-        if bindings:
-            ports[container_port] = int(bindings[0]["HostPort"])
+        ports_data = info.get("NetworkSettings", {}).get("Ports", {})
+        ports = {}
+        for container_port, bindings in ports_data.items():
+            if bindings:
+                ports[container_port] = int(bindings[0]["HostPort"])
 
-    networks = info.get("NetworkSettings", {}).get("Networks", {})
-    for net_name, net_data in networks.items():
-        ip_address = net_data.get("IPAddress")
-        ipam_config = net_data.get("IPAMConfig")
-        if ipam_config and ipam_config.get("Subnet"):
-            subnet = ipam_config["Subnet"]
-        else:
-            subnet = run_command([
-                "docker", "network", "inspect", net_name,
-                "--format", "{{range .IPAM.Config}}{{.Subnet}}{{end}}"
-            ])
+        networks = info.get("NetworkSettings", {}).get("Networks", {})
+        ip_address = None
+        subnet = None
+
+        for net_name, net_data in networks.items():
+            ip_address = net_data.get("IPAddress")
+            ipam_config = net_data.get("IPAMConfig")
+            if ipam_config and ipam_config.get("Subnet"):
+                subnet = ipam_config["Subnet"]
+            else:
+                subnet = run_command([
+                    "docker", "network", "inspect", net_name,
+                    "--format", "{{range .IPAM.Config}}{{.Subnet}}{{end}}"
+                ])
+            break  # Assume apenas a primeira rede é suficiente
+
+        # Extrai o caminho do docker-compose.yml se disponível
+        labels = info.get("Config", {}).get("Labels", {})
+        compose_file = labels.get("com.docker.compose.project.config_files")
+        path = None
+        if compose_file:
+            path = str(Path(compose_file).parent)
 
         return {
             "name": name,
             "ports": ports,
             "ip": ip_address,
-            "subnet": subnet
+            "subnet": subnet,
+            "path": path if path else f"/srv/apps/{name}"
         }
-
-    return None
+    except Exception as e:
+        print(f"Erro ao inspecionar container '{name}': {e}")
+        return None
 
 
 def load_existing_containers():
@@ -60,10 +78,6 @@ def load_existing_containers():
         except json.JSONDecodeError:
             return []
     return []
-
-
-def infer_container_path(name):
-    return f"/srv/apps/{name}"
 
 
 def update_containers_json():
@@ -79,15 +93,12 @@ def update_containers_json():
             continue
 
         if name not in existing_map:
-            container_info["path"] = infer_container_path(name)
             new_entries.append(container_info)
             existing_map[name] = container_info
         else:
             existing_entry = existing_map[name]
-            if "path" in existing_entry:
+            if "path" in existing_entry and existing_entry["path"] != container_info["path"]:
                 container_info["path"] = existing_entry["path"]
-            else:
-                container_info["path"] = infer_container_path(name)
             existing_map[name] = container_info
 
     updated = list(existing_map.values())

@@ -1,0 +1,30 @@
+version: '2'
+
+services:
+
+  safy_website:
+    image: php:7.4-apache
+    container_name: safy_website
+    ports:
+      - "8470:80"
+    networks:
+      - "hosting"
+    restart: always
+    volumes:
+      - ./src:/var/www/html
+      - ./scripts/:/scripts/
+      - ./etc/php/php.ini:/usr/local/etc/php/php.ini
+      # - ./etc/httpd.conf:/usr/local/apache2/conf/httpd.conf
+    # cpu_quota: 50000
+    # cpu_shares: 100000
+    # mem_limit: '300m'
+    command: >
+      bash -c "a2enmod rewrite
+      && apache2-foreground"
+
+networks:
+  hosting:
+    ipam:
+      config:
+      - subnet: 172.16.166.0/24
+        gateway: 172.16.166.1
